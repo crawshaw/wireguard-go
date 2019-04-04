@@ -73,24 +73,27 @@ func CreateTUNWithRequestedGUID(ifname string, requestedGUID *windows.GUID) (Dev
 
 	// Does an interface with this name already exist?
 	wt, err = wintun.GetInterface(ifname)
-	if err == nil {
-		// If so, we delete it, in case it has weird residual configuration.
-		_, err = wt.DeleteInterface()
+	if err == windows.ERROR_OBJECT_NOT_FOUND {
+		// Interface does not exist. Create one.
+		wt, _, err = wintun.CreateInterface("WireGuard Tunnel Adapter", requestedGUID)
 		if err != nil {
-			return nil, fmt.Errorf("Unable to delete already existing Wintun interface: %v", err)
+			return nil, fmt.Errorf("Unable to create Wintun interface: %v", err)
+		}
+
+		err = wt.SetInterfaceName(ifname)
+		if err != nil {
+		wt.DeleteInterface()
+			return nil, fmt.Errorf("Unable to set name of Wintun interface: %v", err)
 		}
 	} else if err == windows.ERROR_ALREADY_EXISTS {
 		return nil, fmt.Errorf("Foreign network interface with the same name exists")
-	}
-	wt, _, err = wintun.CreateInterface("WireGuard Tunnel Adapter", requestedGUID)
-	if err != nil {
-		return nil, fmt.Errorf("Unable to create Wintun interface: %v", err)
-	}
-
-	err = wt.SetInterfaceName(ifname)
-	if err != nil {
-		wt.DeleteInterface()
-		return nil, fmt.Errorf("Unable to set name of Wintun interface: %v", err)
+	} else if err != nil {
+		return nil, fmt.Errorf("Unable to find interface: %v", err)
+	} else {
+		_, err = wt.EnableInterface(true)
+		if err != nil {
+			return nil, fmt.Errorf("Unable to enable Wintun interface: %v", err)
+		}
 	}
 
 	return &NativeTun{
@@ -214,7 +217,7 @@ func (tun *NativeTun) Close() error {
 		close(tun.events)
 	}
 
-	_, err2 := tun.wt.DeleteInterface()
+	_, err2 := tun.wt.EnableInterface(false)
 	if err1 == nil {
 		err1 = err2
 	}
