@@ -416,6 +416,43 @@ func (wintun *Wintun) DeleteInterface() (rebootRequired bool, err error) {
 	return rebootRequired, nil
 }
 
+// EnableInterface enables or disables a TUN interface. Function returns
+// true if a reboot is required.
+func (wintun *Wintun) EnableInterface(enable bool) (bool, error) {
+	devInfoList, deviceData, err := wintun.deviceData()
+	if err != nil {
+		return false, err
+	}
+	defer devInfoList.Close()
+
+	// Change device properties.
+	propchangeDeviceParams := setupapi.PropChangeParams{
+		ClassInstallHeader: *setupapi.MakeClassInstallHeader(setupapi.DIF_PROPERTYCHANGE),
+		Scope:              setupapi.DICS_FLAG_GLOBAL,
+	}
+	if enable {
+		propchangeDeviceParams.StateChange = setupapi.DICS_ENABLE
+	} else {
+		propchangeDeviceParams.StateChange = setupapi.DICS_DISABLE
+	}
+
+	// Set class installer parameters for DIF_PROPERTYCHANGE.
+	err = devInfoList.SetClassInstallParams(deviceData, &propchangeDeviceParams.ClassInstallHeader, uint32(unsafe.Sizeof(propchangeDeviceParams)))
+	if err != nil {
+		return false, fmt.Errorf("SetupDiSetClassInstallParams failed: %v", err)
+	}
+
+	// Call appropriate class installer.
+	err = devInfoList.CallClassInstaller(setupapi.DIF_PROPERTYCHANGE, deviceData)
+	if err != nil {
+		return false, fmt.Errorf("SetupDiCallClassInstaller failed: %v", err)
+	}
+
+	// Check if a system reboot is required. (Ignore errors)
+	ret, _ := checkReboot(devInfoList, deviceData)
+	return ret, nil
+}
+
 // DeleteAllInterfaces deletes all Wintun interfaces, and returns which
 // ones it deleted, whether a reboot is required after, and which errors
 // occurred during the process.
